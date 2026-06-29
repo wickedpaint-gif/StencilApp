@@ -1,0 +1,96 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600&family=Bungee:wght@400&family=Passion+One:wght@400;700&family=Urbanist:wght@300;400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --font-heading: 'Space Grotesk', sans-serif;
+    --font-body: 'Inter', sans-serif;
+
+    --background: 220 15% 96%;
+    --foreground: 220 20% 10%;
+    --card: 0 0% 100%;
+    --card-foreground: 220 20% 10%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 220 20% 10%;
+    --primary: 220 10% 30%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 220 15% 92%;
+    --secondary-foreground: 220 20% 15%;
+    --muted: 220 12% 93%;
+    --muted-foreground: 220 10% 45%;
+    --accent: 35 95% 55%;
+    --accent-foreground: 35 95% 15%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 220 12% 88%;
+    --input: 220 12% 88%;
+    --ring: 220 10% 30%;
+    --chart-1: 220 10% 30%;
+    --chart-2: 35 95% 55%;
+    --chart-3: 173 58% 39%;
+    --chart-4: 197 37% 24%;
+    --chart-5: 43 74% 66%;
+    --radius: 0.75rem;
+    --sidebar-background: 0 0% 98%;
+    --sidebar-foreground: 240 5.3% 26.1%;
+    --sidebar-primary: 262 60% 50%;
+    --sidebar-primary-foreground: 0 0% 98%;
+    --sidebar-accent: 240 4.8% 95.9%;
+    --sidebar-accent-foreground: 240 5.9% 10%;
+    --sidebar-border: 220 13% 91%;
+    --sidebar-ring: 262 60% 50%;
+  }
+
+  .dark {
+    --background: 225 20% 8%;
+    --foreground: 220 15% 95%;
+    --card: 225 18% 12%;
+    --card-foreground: 220 15% 95%;
+    --popover: 225 18% 12%;
+    --popover-foreground: 220 15% 95%;
+    --primary: 220 10% 35%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 225 15% 18%;
+    --secondary-foreground: 220 15% 90%;
+    --muted: 225 12% 16%;
+    --muted-foreground: 220 10% 55%;
+    --accent: 35 95% 55%;
+    --accent-foreground: 35 95% 95%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 225 12% 18%;
+    --input: 225 12% 18%;
+    --ring: 220 10% 35%;
+    --chart-1: 220 10% 35%;
+    --chart-2: 35 95% 55%;
+    --chart-3: 173 58% 50%;
+    --chart-4: 197 50% 45%;
+    --chart-5: 43 74% 66%;
+    --sidebar-background: 225 20% 8%;
+    --sidebar-foreground: 220 15% 95%;
+    --sidebar-primary: 262 60% 60%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 225 15% 15%;
+    --sidebar-accent-foreground: 220 15% 90%;
+    --sidebar-border: 225 12% 18%;
+    --sidebar-ring: 262 60% 60%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  body {
+    @apply text-foreground;
+    background-image: url('/src/assets/background.png');
+    background-size: cover;
+    background-attachment: fixed;
+    background-repeat: no-repeat;
+    background-position: center;
+  }
+}
