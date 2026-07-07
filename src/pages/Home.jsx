@@ -4,7 +4,7 @@ import { motion } from 'framer-motion';
 import { Layers, Scissors } from 'lucide-react';
 import ImageUploader from '@/components/stencil/ImageUploader';
 import Logo from "@/assets/Logo.png";
-import Heading from "@/assets/Heading.png"
+import Heading from "@/assets/Heading.png";
 
 export default function Home() {
   const navigate = useNavigate();

@@ -1,7 +1,7 @@
 import React from 'react';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Coffee, Heart, X } from 'lucide-react';
+import { SprayCan, Heart, X } from 'lucide-react';
 
 export default function KofiDialog({ open, onOpenChange }) {
   return (
@@ -16,13 +16,13 @@ export default function KofiDialog({ open, onOpenChange }) {
 
         <div className="flex flex-col items-center gap-4 py-4">
           <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center">
-            <Coffee className="w-7 h-7 text-primary" />
+            <SprayCan className="w-7 h-7 text-primary" />
           </div>
 
           <div className="space-y-1.5">
-            <h2 className="font-heading font-bold text-lg">Enjoying LayerStencil?</h2>
+            <h2 className="font-heading font-bold text-lg">Enjoying Stencil App?</h2>
             <p className="text-sm text-muted-foreground font-body leading-relaxed">
-              If this tool saved you time, consider buying me a coffee — it helps keep the project alive and free!
+              If this tool saved you time, consider buying me a spraycan — it helps keep the project alive and free!
             </p>
           </div>
 
@@ -34,8 +34,8 @@ export default function KofiDialog({ open, onOpenChange }) {
               onClick={() => onOpenChange(false)}
             >
               <Button className="w-full gap-2">
-                <Coffee className="w-4 h-4" />
-                Buy me a coffee ☕
+                <SprayCan className="w-4 h-4" />
+                Buy me some cans or caps!
               </Button>
             </a>
             <Button

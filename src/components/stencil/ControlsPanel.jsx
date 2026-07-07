@@ -372,7 +372,7 @@ export default function ControlsPanel({
               <Slider
               value={[markerMargin]}
               onValueChange={([v]) => onMarkerMarginChange(v)}
-              min={10}
+              min={-80}
               max={80}
               step={2} />
             

@@ -263,9 +263,47 @@ export function bridgeIslandsOnCanvas(canvas, bridgeWidth = 2, minIslandSize = 0
 export function burnCornerMarkers(canvas, armLength = 14, armWidth = 3, margin = 24) {
   const origW = canvas.width;
   const origH = canvas.height;
+  const ctx = canvas.getContext('2d');
+
+  // Negative margin: draw crosshairs INSIDE the artwork (no canvas expansion)
+  if (margin < 0) {
+    const inset = Math.abs(margin) / 2;
+    const newW = origW;
+    const newH = origH;
+    const imageData = ctx.getImageData(0, 0, newW, newH);
+    const data = imageData.data;
+
+    const corners = [
+      { cx: inset, cy: inset },
+      { cx: newW - inset, cy: inset },
+      { cx: inset, cy: newH - inset },
+      { cx: newW - inset, cy: newH - inset },
+    ];
+
+    const half = Math.floor(armWidth / 2);
+    for (const { cx, cy } of corners) {
+      for (let x = Math.round(cx - armLength); x <= Math.round(cx + armLength); x++) {
+        for (let dy = -half; dy <= half; dy++) {
+          const py = Math.round(cy) + dy;
+          if (x < 0 || x >= newW || py < 0 || py >= newH) continue;
+          const idx = (py * newW + x) * 4;
+          data[idx] = 0; data[idx + 1] = 0; data[idx + 2] = 0; data[idx + 3] = 255;
+        }
+      }
+      for (let y = Math.round(cy - armLength); y <= Math.round(cy + armLength); y++) {
+        for (let dx = -half; dx <= half; dx++) {
+          const px = Math.round(cx) + dx;
+          if (px < 0 || px >= newW || y < 0 || y >= newH) continue;
+          const idx = (y * newW + px) * 4;
+          data[idx] = 0; data[idx + 1] = 0; data[idx + 2] = 0; data[idx + 3] = 255;
+        }
+      }
+    }
+    ctx.putImageData(imageData, 0, 0);
+    return;
+  }
 
   // Snapshot existing content
-  const ctx = canvas.getContext('2d');
   const origImageData = ctx.getImageData(0, 0, origW, origH);
 
   // Expand canvas by margin on all sides

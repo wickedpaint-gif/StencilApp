@@ -866,43 +866,68 @@ export function canvasToSVG(canvas, fillColor = 'black', options = {}) {
     .replace(/fill="rgb\(\s*0\s*,\s*0\s*,\s*0\s*\)"/g, `fill="${fillColor}"`);
 
   if (cornerMarkers) {
-    // Match burnCornerMarkers exactly:
-    // - Expand the SVG canvas by markerMargin on all sides (image content offset by margin)
-    // - Place crosshair centres at (margin/2, margin/2) in each corner of the expanded area
-    const totalW = w + markerMargin * 2;
-    const totalH = h + markerMargin * 2;
+    if (markerMargin < 0) {
+      // Negative margin: draw crosshairs INSIDE the artwork (no SVG expansion)
+      const inset = Math.abs(markerMargin) / 2;
+      const corners = [
+        { cx: inset, cy: inset },
+        { cx: w - inset, cy: inset },
+        { cx: inset, cy: h - inset },
+        { cx: w - inset, cy: h - inset },
+      ];
 
-    // Shift the viewBox and image paths by expanding the SVG dimensions and translating content
-    svgString = svgString
-      .replace(/viewBox="[^"]*"/, `viewBox="0 0 ${totalW} ${totalH}"`)
-      .replace(/(<svg[^>]*width=")[^"]*(")/,  `$1${totalW}$2`)
-      .replace(/(<svg[^>]*height=")[^"]*(")/,  `$1${totalH}$2`);
+      svgString = svgString.replace(
+        /(<svg[^>]*>)/,
+        `$1<rect width="${w}" height="${h}" fill="white"/>`
+      );
 
-    // Wrap all existing content in a group translated by margin so image sits in centre
-    svgString = svgString.replace(
-      /(<svg[^>]*>)/,
-      `$1<rect width="${totalW}" height="${totalH}" fill="white"/><g transform="translate(${markerMargin},${markerMargin})">`
-    );
-    svgString = svgString.replace('</svg>', `</g></svg>`);
+      const markersSVG = `<g id="corner-markers">${
+        corners.map(({ cx, cy }) => `
+          <rect x="${cx - markerSize}" y="${cy - markerThickness / 2}" width="${markerSize * 2}" height="${markerThickness}" fill="${markerColor}"/>
+          <rect x="${cx - markerThickness / 2}" y="${cy - markerSize}" width="${markerThickness}" height="${markerSize * 2}" fill="${markerColor}"/>
+        `).join('')
+      }</g>`;
 
-    // Draw crosshairs in the margin at each corner — matching burnCornerMarkers positions exactly
-    const cx = markerMargin / 2;
-    const cy = markerMargin / 2;
-    const corners = [
-      { cx, cy },
-      { cx: totalW - cx, cy },
-      { cx, cy: totalH - cy },
-      { cx: totalW - cx, cy: totalH - cy },
-    ];
+      svgString = svgString.replace('</svg>', `${markersSVG}</svg>`);
+    } else {
+      // Match burnCornerMarkers exactly:
+      // - Expand the SVG canvas by markerMargin on all sides (image content offset by margin)
+      // - Place crosshair centres at (margin/2, margin/2) in each corner of the expanded area
+      const totalW = w + markerMargin * 2;
+      const totalH = h + markerMargin * 2;
 
-    const markersSVG = `<g id="corner-markers">${
-      corners.map(({ cx, cy }) => `
-        <line x1="${cx - markerSize}" y1="${cy}" x2="${cx + markerSize}" y2="${cy}" stroke="${markerColor}" stroke-width="${markerThickness}" stroke-linecap="round"/>
-        <line x1="${cx}" y1="${cy - markerSize}" x2="${cx}" y2="${cy + markerSize}" stroke="${markerColor}" stroke-width="${markerThickness}" stroke-linecap="round"/>
-      `).join('')
-    }</g>`;
+      // Shift the viewBox and image paths by expanding the SVG dimensions and translating content
+      svgString = svgString
+        .replace(/viewBox="[^"]*"/, `viewBox="0 0 ${totalW} ${totalH}"`)
+        .replace(/(<svg[^>]*width=")[^"]*(")/,  `$1${totalW}$2`)
+        .replace(/(<svg[^>]*height=")[^"]*(")/,  `$1${totalH}$2`);
 
-    svgString = svgString.replace('</svg>', `${markersSVG}</svg>`);
+      // Wrap all existing content in a group translated by margin so image sits in centre
+      svgString = svgString.replace(
+        /(<svg[^>]*>)/,
+        `$1<rect width="${totalW}" height="${totalH}" fill="white"/><g transform="translate(${markerMargin},${markerMargin})">`
+      );
+      svgString = svgString.replace('</svg>', `</g></svg>`);
+
+      // Draw crosshairs in the margin at each corner — matching burnCornerMarkers positions exactly
+      const cx = markerMargin / 2;
+      const cy = markerMargin / 2;
+      const corners = [
+        { cx, cy },
+        { cx: totalW - cx, cy },
+        { cx, cy: totalH - cy },
+        { cx: totalW - cx, cy: totalH - cy },
+      ];
+
+      const markersSVG = `<g id="corner-markers">${
+        corners.map(({ cx, cy }) => `
+          <rect x="${cx - markerSize}" y="${cy - markerThickness / 2}" width="${markerSize * 2}" height="${markerThickness}" fill="${markerColor}"/>
+          <rect x="${cx - markerThickness / 2}" y="${cy - markerSize}" width="${markerThickness}" height="${markerSize * 2}" fill="${markerColor}"/>
+        `).join('')
+      }</g>`;
+
+      svgString = svgString.replace('</svg>', `${markersSVG}</svg>`);
+    }
   } else {
     // No markers — just add white background
     svgString = svgString.replace(
