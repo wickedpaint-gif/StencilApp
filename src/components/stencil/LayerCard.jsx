@@ -3,7 +3,7 @@ import { motion } from 'framer-motion';
 import { Eye, EyeOff, Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
-import { canvasToSVG, downloadSVG, downloadPNG, getRealisticLayerColors } from '@/lib/stencilProcessor';
+import { canvasToSVG, downloadSVG, downloadPNG, renderColoredCanvas, getRealisticLayerColors } from '@/lib/stencilProcessor';
 import { burnCornerMarkers } from '@/lib/islandBridge';
 import {
   DropdownMenu,
@@ -155,10 +155,12 @@ export default function LayerCard({
   };
 
   const handleExportPNG = () => {
-    const copy = document.createElement('canvas');
-    copy.width = layer.canvas.width;
-    copy.height = layer.canvas.height;
-    copy.getContext('2d').drawImage(layer.canvas, 0, 0);
+    const copy = renderColoredCanvas(layer.canvas, {
+      mode: layer.mode,
+      colorized: layer.colorized,
+      paletteColor: layer.paletteColor,
+      swatchColor,
+    });
 
     if (layer.addCornerMarkers) {
       burnCornerMarkers(copy, markerArmLength, markerArmWidth, markerMargin, markerColor);

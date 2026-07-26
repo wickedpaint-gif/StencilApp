@@ -4,7 +4,6 @@ import { Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Layers, ArrowLeft, AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import Logo from "@/assets/Logo.png";
 
 import ImageUploader from '@/components/stencil/ImageUploader';
 import CompositePreview from '@/components/stencil/CompositePreview';
@@ -373,7 +372,7 @@ export default function StencilEditor() {
             </Button>
           </Link>
           <img
-            src={Logo}
+            src="https://media.base44.com/images/public/69ec063e95ff412fb6368fde/5ac03c47f_STENCILAPPLOGO.png"
             alt="Stencil App"
             className="h-10 w-auto" />
           

@@ -1055,6 +1055,70 @@ export function downloadPNG(dataUrl, filename) {
   document.body.removeChild(a);
 }
 
+/**
+ * Produces a colored copy of a stencil canvas, matching the preview thumbnail.
+ * Realistic non-colorized: fills opaque pixels with swatchColor.
+ * Realistic colorized: keeps the sampled RGB already present in the canvas.
+ * Cartoon: fills opaque pixels with the layer's paletteColor.
+ */
+export function renderColoredCanvas(srcCanvas, { mode, colorized, paletteColor, swatchColor }) {
+  const w = srcCanvas.width;
+  const h = srcCanvas.height;
+  const srcCtx = srcCanvas.getContext('2d');
+  const imgData = srcCtx.getImageData(0, 0, w, h);
+  const out = document.createElement('canvas');
+  out.width = w;
+  out.height = h;
+  const outCtx = out.getContext('2d');
+  const outData = outCtx.createImageData(w, h);
+
+  const isRealistic = mode === 'realistic';
+
+  let pr = 0, pg = 0, pb = 0;
+  if (!isRealistic && paletteColor) {
+    const hex = paletteColor.replace('#', '');
+    pr = parseInt(hex.slice(0, 2), 16) || 0;
+    pg = parseInt(hex.slice(2, 4), 16) || 0;
+    pb = parseInt(hex.slice(4, 6), 16) || 0;
+  }
+
+  let sr = 51, sg = 51, sb = 51; // default #333
+  if (isRealistic && swatchColor) {
+    const hex = swatchColor.replace('#', '');
+    sr = parseInt(hex.slice(0, 2), 16) || 51;
+    sg = parseInt(hex.slice(2, 4), 16) || 51;
+    sb = parseInt(hex.slice(4, 6), 16) || 51;
+  }
+
+  for (let i = 0; i < w * h; i++) {
+    const a = imgData.data[i * 4 + 3];
+    if (isRealistic) {
+      if (a > 0) {
+        if (colorized) {
+          outData.data[i * 4]     = imgData.data[i * 4];
+          outData.data[i * 4 + 1] = imgData.data[i * 4 + 1];
+          outData.data[i * 4 + 2] = imgData.data[i * 4 + 2];
+        } else {
+          outData.data[i * 4]     = sr;
+          outData.data[i * 4 + 1] = sg;
+          outData.data[i * 4 + 2] = sb;
+        }
+        outData.data[i * 4 + 3] = a;
+      } else {
+        outData.data[i * 4 + 3] = 0;
+      }
+    } else {
+      outData.data[i * 4]     = pr;
+      outData.data[i * 4 + 1] = pg;
+      outData.data[i * 4 + 2] = pb;
+      outData.data[i * 4 + 3] = a > 128 ? 255 : 0;
+    }
+  }
+
+  outCtx.putImageData(outData, 0, 0);
+  return out;
+}
+
 // ─── High Quality PNG Export (SVG-based) ────────────────────────────────────
 async function downloadHighQualityPNG(
   canvas,
