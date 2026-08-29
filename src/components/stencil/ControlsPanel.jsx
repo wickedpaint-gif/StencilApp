@@ -4,7 +4,7 @@ import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Download, RotateCcw, Layers, Palette, Crosshair, GitBranch, ScanSearch, Paintbrush, Ruler, Maximize2, Scissors, Sparkles, Droplets } from 'lucide-react';
-import { downloadPNG } from '@/lib/stencilProcessor';
+import { renderColoredCanvas, downloadZip } from '@/lib/stencilProcessor';
 import ModeSelector from './ModeSelector';
 import SvgExportDialog from './SvgExportDialog';
 import KofiDialog from './KofiDialog';
@@ -51,13 +51,21 @@ export default function ControlsPanel({
   const [svgDialogOpen, setSvgDialogOpen] = useState(false);
   const [kofiOpen, setKofiOpen] = useState(false);
 
-  const handleExportAllPng = () => {
-    layers.forEach((layer, idx) => {
-      setTimeout(() => {
-        downloadPNG(layer.dataUrl, `stencil-layer-${String(idx + 1).padStart(2, '0')}.png`);
-      }, idx * 250);
+  const handleExportAllPng = async () => {
+    const files = layers.map((layer, idx) => {
+      const colored = renderColoredCanvas(layer.canvas, {
+        mode: layer.mode,
+        colorized: layer.colorized,
+        paletteColor: layer.paletteColor,
+        swatchColor: (layerColors && layerColors[idx]) || undefined,
+      });
+      return {
+        name: `stencil-layer-${String(idx + 1).padStart(2, '0')}.png`,
+        dataUrl: colored.toDataURL('image/png'),
+      };
     });
-    setTimeout(() => setKofiOpen(true), layers.length * 250 + 500);
+    await downloadZip(files, 'stencil-layers-png.zip');
+    setKofiOpen(true);
   };
 
   return (

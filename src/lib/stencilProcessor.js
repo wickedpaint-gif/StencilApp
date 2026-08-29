@@ -6,6 +6,7 @@ import { burnCornerMarkers } from './islandBridge.js';
 import { applyVectorBridges } from './vectorBridge.js';
 import { applySmartBridges, buildUpperLayerMasks } from './smartBridge.js';
 import ImageTracer from 'imagetracerjs';
+import JSZip from 'jszip';
 
 /**
  * 
@@ -1117,6 +1118,30 @@ export function renderColoredCanvas(srcCanvas, { mode, colorized, paletteColor, 
 
   outCtx.putImageData(outData, 0, 0);
   return out;
+}
+
+/**
+ * Bundles multiple files into a single ZIP download.
+ * Each file is { name, text } (string content) or { name, dataUrl } (base64 data URL).
+ */
+export async function downloadZip(files, zipName) {
+  const zip = new JSZip();
+  for (const f of files) {
+    if (f.text != null) {
+      zip.file(f.name, f.text);
+    } else if (f.dataUrl) {
+      zip.file(f.name, f.dataUrl.split(',')[1], { base64: true });
+    }
+  }
+  const blob = await zip.generateAsync({ type: 'blob' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = zipName;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
 
 // ─── High Quality PNG Export (SVG-based) ────────────────────────────────────

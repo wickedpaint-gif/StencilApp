@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Download, Link, Unlink } from 'lucide-react';
-import { canvasToSVG, downloadSVG } from '@/lib/stencilProcessor';
+import { canvasToSVG, downloadZip } from '@/lib/stencilProcessor';
 import KofiDialog from './KofiDialog';
 
 function applySvgDimensions(svgString, widthMm, heightMm) {
@@ -39,36 +39,37 @@ export default function SvgExportDialog({ open, onOpenChange, layers, cornerMark
     }
   };
 
-  const handleExport = () => {
-    layers.forEach((layer, idx) => {
-      setTimeout(() => {
-        let inkColor = '#000000';
-        if (mode === 'cartoon') {
-          inkColor = layer.paletteColor || '#000000';
-        } else if (layerColors && layerColors[idx]) {
-          inkColor = layerColors[idx];
-        }
+  const handleExport = async () => {
+    const files = layers.map((layer, idx) => {
+      let inkColor = '#000000';
+      if (mode === 'cartoon') {
+        inkColor = layer.paletteColor || '#000000';
+      } else if (layerColors && layerColors[idx]) {
+        inkColor = layerColors[idx];
+      }
 
-        let svg = canvasToSVG(layer.canvas, inkColor, {
-          cornerMarkers,
-          markerSize: markerArmLength,
-          markerThickness: markerArmWidth,
-          markerMargin,
-          markerColor: 'black',
-        });
+      let svg = canvasToSVG(layer.canvas, inkColor, {
+        cornerMarkers,
+        markerSize: markerArmLength,
+        markerThickness: markerArmWidth,
+        markerMargin,
+        markerColor: 'black',
+      });
 
-        const w = parseFloat(widthMm);
-        const h = parseFloat(heightMm);
-        if (w > 0 && h > 0) {
-          svg = applySvgDimensions(svg, w, h);
-        }
+      const w = parseFloat(widthMm);
+      const h = parseFloat(heightMm);
+      if (w > 0 && h > 0) {
+        svg = applySvgDimensions(svg, w, h);
+      }
 
-        downloadSVG(svg, `stencil-layer-${String(idx + 1).padStart(2, '0')}.svg`);
-      }, idx * 250);
+      return {
+        name: `stencil-layer-${String(idx + 1).padStart(2, '0')}.svg`,
+        text: svg,
+      };
     });
     onOpenChange(false);
-    // Show Ko-fi donation prompt after all downloads have kicked off
-    setTimeout(() => setKofiOpen(true), layers.length * 250 + 500);
+    await downloadZip(files, 'stencil-layers-svg.zip');
+    setKofiOpen(true);
   };
 
   return (
