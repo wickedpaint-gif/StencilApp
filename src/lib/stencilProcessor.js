@@ -365,6 +365,25 @@ export function generateRealisticLayers(
     ? thresholds
     : defaultRealisticThresholds(numLayers);
 
+  // When colorizing, derive layer colors from cartoon-style K-means quantization
+  // (same palette generator as Cartoon mode), sorted darkest→lightest. This keeps
+  // the richer, perceptually-grouped colors users see in Cartoon mode while
+  // preserving the cumulative stacked-layer structure of Realistic mode.
+  // Each realistic layer (0=darkest band … N-1=lightest band) is paired with the
+  // palette color of matching luminance rank.
+  let colorPalette = null;
+  if (colorize && rawData) {
+    const palette = kMeansQuantize(rawData, width, height, numLayers);
+    if (palette) {
+      colorPalette = palette
+        .map(([r, g, b]) => ({
+          r, g, b,
+          lum: 0.299 * r + 0.587 * g + 0.114 * b,
+        }))
+        .sort((a, b) => a.lum - b.lum);
+    }
+  }
+
   const layers = [];
 
   for (let layer = 0; layer < numLayers; layer++) {
@@ -372,26 +391,13 @@ export function generateRealisticLayers(
     const lowerT = layer === 0 ? 0 : thr[layer - 1];
     const upperT = thr[layer];
 
-    // Compute average color for this band if colorize is on
+    // Pick this layer's color from the cartoon-style palette (darkest→lightest)
     let avgR = 0, avgG = 0, avgB = 0;
-    if (colorize && rawData) {
-      let sumR = 0, sumG = 0, sumB = 0, count = 0;
-      for (let i = 0; i < width * height; i++) {
-        const luma = blurred[i];
-        const srcAlpha = alpha ? alpha[i] : 255;
-        const inBand = srcAlpha >= 10 && luma >= lowerT && luma < upperT;
-        if (inBand) {
-          sumR += rawData.data[i * 4];
-          sumG += rawData.data[i * 4 + 1];
-          sumB += rawData.data[i * 4 + 2];
-          count++;
-        }
-      }
-      if (count > 0) {
-        avgR = Math.round(sumR / count);
-        avgG = Math.round(sumG / count);
-        avgB = Math.round(sumB / count);
-      }
+    if (colorPalette) {
+      const c = colorPalette[layer] || colorPalette[colorPalette.length - 1];
+      avgR = c.r;
+      avgG = c.g;
+      avgB = c.b;
     }
 
     const canvas = document.createElement('canvas');
