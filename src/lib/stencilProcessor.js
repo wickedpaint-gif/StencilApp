@@ -67,7 +67,7 @@ export function imageToGrayscaleData(imageElement, maxSize = 4096) {
  *
  * Uses 4-connectivity BFS. Operates directly on the ImageData alpha channel.
  */
-export function applyCleanup(canvas, minSize) {
+export function applyCleanup(canvas, minSize, fillColor = [0, 0, 0]) {
   if (!minSize || minSize <= 0) return;
 
   const ctx = canvas.getContext('2d');
@@ -126,11 +126,11 @@ export function applyCleanup(canvas, minSize) {
     const { pixels, touchesBorder } = bfs(i, false);
     if (!touchesBorder && pixels.length < minSize) {
       for (const p of pixels) {
+        // colour the filled pixel with the layer's ink color
+        alpha[p * 4]     = fillColor[0];
+        alpha[p * 4 + 1] = fillColor[1];
+        alpha[p * 4 + 2] = fillColor[2];
         alpha[p * 4 + 3] = 255;
-        // colour the filled pixel black (stencil ink)
-        alpha[p * 4] = 0;
-        alpha[p * 4 + 1] = 0;
-        alpha[p * 4 + 2] = 0;
       }
     }
   }
@@ -434,8 +434,8 @@ export function generateRealisticLayers(
 
     ctx.putImageData(imageData, 0, 0);
 
-    // Cleanup: remove specks and fill small holes
-    if (cleanupSize > 0) applyCleanup(canvas, cleanupSize);
+    // Cleanup: remove specks and fill small holes (use this layer's ink color)
+    if (cleanupSize > 0) applyCleanup(canvas, cleanupSize, [avgR, avgG, avgB]);
 
     // Keep a clean (bridge-free) copy for use during merge operations
     const cleanCanvas = document.createElement('canvas');
