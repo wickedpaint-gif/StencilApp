@@ -1,9 +1,10 @@
-import React, { useEffect, useRef } from 'react';
+import React from 'react';
 import { motion } from 'framer-motion';
-import { Eye, EyeOff, Download } from 'lucide-react';
+import { Eye, EyeOff, Download, Maximize2 } from 'lucide-react';
+import LayerMaskCanvas from './LayerMaskCanvas';
 import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
-import { canvasToSVG, downloadSVG, downloadPNG, renderColoredCanvas, getRealisticLayerColors } from '@/lib/stencilProcessor';
+import { canvasToSVG, downloadSVG, downloadPNG, renderColoredCanvas } from '@/lib/stencilProcessor';
 import { burnCornerMarkers } from '@/lib/islandBridge';
 import {
   DropdownMenu,
@@ -11,98 +12,6 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-
-function WhiteMaskThumbnail({ layer }) {
-  const canvasRef = useRef(null);
-
-  useEffect(() => {
-    const out = canvasRef.current;
-    if (!out || !layer.canvas) return;
-
-    // Work on a copy so we don't mutate the original canvas
-    const src = document.createElement('canvas');
-    src.width = layer.canvas.width;
-    src.height = layer.canvas.height;
-    src.getContext('2d').drawImage(layer.canvas, 0, 0);
-
-    // Burn markers onto the copy for preview only
-    if (layer.addCornerMarkers && layer.markerOptions) {
-      const mo = layer.markerOptions;
-      burnCornerMarkers(src, mo.armLength, mo.armWidth, mo.margin, mo.color);
-    }
-
-    out.width = src.width;
-    out.height = src.height;
-
-    const ctx = out.getContext('2d');
-
-    const srcCtx = src.getContext('2d');
-    const imgData = srcCtx.getImageData(0, 0, src.width, src.height);
-    const outData = ctx.createImageData(src.width, src.height);
-
-    const isRealistic = layer.mode === 'realistic';
-
-    // Parse cartoon palette color
-    let pr = 0, pg = 0, pb = 0;
-
-    if (!isRealistic && layer.paletteColor) {
-      const hex = layer.paletteColor.replace('#', '');
-
-      pr = parseInt(hex.slice(0, 2), 16);
-      pg = parseInt(hex.slice(2, 4), 16);
-      pb = parseInt(hex.slice(4, 6), 16);
-    }
-
-    for (let i = 0; i < src.width * src.height; i++) {
-      const a = imgData.data[i * 4 + 3];
-
-      if (isRealistic) {
-        if (a > 0) {
-          if (layer.colorized) {
-            // Show actual image color sampled into the canvas
-            outData.data[i * 4]     = imgData.data[i * 4];
-            outData.data[i * 4 + 1] = imgData.data[i * 4 + 1];
-            outData.data[i * 4 + 2] = imgData.data[i * 4 + 2];
-          } else {
-            // Use selected swatch color instead of black
-            const hex = (layer.previewColor || '#333').replace('#', '');
-
-            outData.data[i * 4]     = parseInt(hex.slice(0, 2), 16);
-            outData.data[i * 4 + 1] = parseInt(hex.slice(2, 4), 16);
-            outData.data[i * 4 + 2] = parseInt(hex.slice(4, 6), 16);
-          }
-
-          // Preserve original alpha for smooth transparency
-          outData.data[i * 4 + 3] = a;
-        } else {
-          // Fully transparent outside stencil area
-          outData.data[i * 4]     = 0;
-          outData.data[i * 4 + 1] = 0;
-          outData.data[i * 4 + 2] = 0;
-          outData.data[i * 4 + 3] = 0;
-        }
-      } else {
-        // Cartoon: opaque = palette color, transparent = background
-        outData.data[i * 4]     = pr;
-        outData.data[i * 4 + 1] = pg;
-        outData.data[i * 4 + 2] = pb;
-        outData.data[i * 4 + 3] = a > 128 ? 255 : 0;
-      }
-    }
-
-    ctx.putImageData(outData, 0, 0);
-  }, [layer.canvas, layer.dataUrl, layer.colorized, layer.previewColor, layer.addCornerMarkers, layer.markerOptions]);
-
-  return (
-    <canvas
-      ref={canvasRef}
-      className={`w-full h-full object-contain transition-opacity duration-200 ${
-        layer.visible ? 'opacity-100' : 'opacity-20'
-      }`}
-      style={{ imageRendering: 'auto' }}
-    />
-  );
-}
 
 export default function LayerCard({
   layer,
@@ -122,6 +31,10 @@ export default function LayerCard({
   markerColor = 'black',
   bridgeIslands = false,
   bridgeWidth = 3,
+  colorOverride = null,
+  // Inspecting a layer in the main preview
+  selected = false,
+  onSelect,
 }) {
   // Determine the swatch color
   let swatchColor = '#333';
@@ -131,6 +44,14 @@ export default function LayerCard({
   } else {
     swatchColor = (layerColors && layerColors[index]) || '#333';
   }
+
+  // Clicking the card inspects this layer in the main preview; clicking it
+  // again returns to the stacked view. Controls inside the card are ignored.
+  const handleCardClick = (e) => {
+    if (!onSelect) return;
+    if (e.target.closest('button, input, a, [role="slider"]')) return;
+    onSelect(index);
+  };
 
   const handleExportSVG = () => {
     const useMarkers = layer.addCornerMarkers ?? cornerMarkers;
@@ -174,16 +95,42 @@ export default function LayerCard({
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: index * 0.06 }}
-      className="group relative bg-card rounded-xl border border-border overflow-hidden hover:border-primary/30 transition-all duration-200 hover:shadow-sm"
+      onClick={handleCardClick}
+      title="Click to view this layer in the preview"
+      className={`group relative bg-card rounded-xl border overflow-hidden transition-all duration-200 cursor-pointer ${
+        selected
+          ? 'border-primary ring-2 ring-primary/30 shadow-sm'
+          : 'border-border hover:border-primary/30 hover:shadow-sm'
+      }`}
     >
       {/* Thumbnail - markers are now burned into the canvas, no overlay needed */}
       <div className="relative aspect-square bg-[repeating-conic-gradient(hsl(220,12%,88%)_0%_25%,white_0%_50%)] bg-[length:14px_14px]">
-        <WhiteMaskThumbnail
+        <LayerMaskCanvas
           layer={{
             ...layer,
-            previewColor: swatchColor
+            previewColor: swatchColor,
+            colorOverride
           }}
+          className="w-full h-full object-contain"
         />
+
+        {/* Hover hint */}
+        {!selected && (
+          <div className="absolute inset-0 flex items-end justify-center pb-2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+            <span className="flex items-center gap-1 text-[9px] font-body bg-card/95 border border-border rounded-full px-2 py-0.5 shadow-sm">
+              <Maximize2 className="w-2.5 h-2.5" />
+              View
+            </span>
+          </div>
+        )}
+
+        {/* Selected badge */}
+        {selected && (
+          <div className="absolute top-1.5 right-1.5 flex items-center gap-1 text-[9px] font-heading font-semibold bg-primary text-primary-foreground rounded-full px-1.5 py-0.5 shadow">
+            <Maximize2 className="w-2.5 h-2.5" />
+            Viewing
+          </div>
+        )}
 
         {/* REMOVED: Old red corner marker overlay - now handled by canvas directly */}
 
@@ -282,7 +229,7 @@ export default function LayerCard({
 
         {/* Per-layer threshold slider for realistic mode (skip index 1, shares with 0) */}
         {onThresholdChange && layerThreshold !== undefined && index !== 1 && (
-          <div className="mt-2 space-y-1">
+          <div className="mt-2 space-y-1" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between">
 
               <span className="text-[9px] text-muted-foreground font-body">

@@ -5,6 +5,7 @@
 import { burnCornerMarkers } from './islandBridge.js';
 import { applyVectorBridges } from './vectorBridge.js';
 import { applySmartBridges, buildUpperLayerMasks } from './smartBridge.js';
+import { buildCartoonSegments } from './cartoonProcessor.js';
 import ImageTracer from 'imagetracerjs';
 import JSZip from 'jszip';
 
@@ -615,59 +616,6 @@ export function kMeansQuantize(rawData, width, height, k, maxIter = 12) {
 }
 
 /**
- * Flood-fill from the image border to identify background pixels
- * (near-white pixels reachable from the edges). Returns a boolean mask.
- */
-function buildBackgroundMask(rawData, width, height, whiteTolerance) {
-  const total = width * height;
-  const isNearWhite = new Uint8Array(total);
-  const threshold = 255 - whiteTolerance;
-
-  for (let i = 0; i < total; i++) {
-    const a = rawData.data[i * 4 + 3];
-    const r = rawData.data[i * 4];
-    const g = rawData.data[i * 4 + 1];
-    const b = rawData.data[i * 4 + 2];
-    if (a >= 10 && r >= threshold && g >= threshold && b >= threshold) {
-      isNearWhite[i] = 1;
-    }
-  }
-
-  // BFS from all border pixels that are near-white
-  const isBackground = new Uint8Array(total);
-  const queue = [];
-
-  const enqueue = (idx) => {
-    if (isNearWhite[idx] && !isBackground[idx]) {
-      isBackground[idx] = 1;
-      queue.push(idx);
-    }
-  };
-
-  for (let x = 0; x < width; x++) {
-    enqueue(x);                          // top row
-    enqueue((height - 1) * width + x);  // bottom row
-  }
-  for (let y = 0; y < height; y++) {
-    enqueue(y * width);                  // left col
-    enqueue(y * width + width - 1);     // right col
-  }
-
-  let head = 0;
-  while (head < queue.length) {
-    const idx = queue[head++];
-    const x = idx % width;
-    const y = Math.floor(idx / width);
-    if (x > 0)          enqueue(idx - 1);
-    if (x < width - 1)  enqueue(idx + 1);
-    if (y > 0)          enqueue(idx - width);
-    if (y < height - 1) enqueue(idx + width);
-  }
-
-  return isBackground;
-}
-
-/**
  * Morphological dilation — grows opaque regions outward by `radius` pixels.
  * Used to add bleed to cartoon color layers so there are no gaps when painted.
  */
@@ -713,63 +661,55 @@ function dilateCanvas(canvas, radius) {
   ctx.putImageData(dst, 0, 0);
 }
 
-export function generateCartoonLayers(rawData, width, height, numColors, whiteTolerance = 15, bridgeIslands = false, bridgeWidth = 2, cornerMarkers = false, markerOptions = { armLength: 14, armWidth: 3, margin: 24, color: 'black' }, minIslandSize = 200, bleedRadius = 1) {
-  // Get palette via K-means
-  const palette = kMeansQuantize(rawData, width, height, numColors);
-  if (!palette) return [];
+/**
+ * Turns a cartoon colour label map (`labels` index into `palette`, -1 =
+ * uncut) into the finished layer list: solid binary masks, luminance ordering,
+ * bleed, smart bridging and corner markers.
+ *
+ * Shared by Cartoon V1 and Cartoon V2 so both engines produce byte-identical
+ * layer objects for the existing preview and export pipeline. Realistic mode
+ * never touches this.
+ */
+export function assembleCartoonLayers({
+  labels, palette, width, height,
+  bridgeIslands = false, bridgeWidth = 2, cornerMarkers = false,
+  markerOptions = { armLength: 14, armWidth: 3, margin: 24, color: 'black' },
+  minIslandSize = 200, bleedRadius = 1,
+}) {
+  if (!palette.length) return [];
 
-  // Build background mask — only removes whites reachable from image border
-  const backgroundMask = whiteTolerance > 0
-    ? buildBackgroundMask(rawData, width, height, whiteTolerance)
-    : null;
+  const n = width * height;
+  const counts = new Int32Array(palette.length);
+  for (let i = 0; i < n; i++) {
+    const l = labels[i];
+    if (l >= 0) counts[l]++;
+  }
 
-  const layers = palette.map((color, idx) => {
+  const layers = [];
+
+  for (let idx = 0; idx < palette.length; idx++) {
+    if (counts[idx] === 0) continue;
+
     const canvas = document.createElement('canvas');
     canvas.width = width;
     canvas.height = height;
     const ctx = canvas.getContext('2d');
     const imageData = ctx.createImageData(width, height);
 
-    for (let i = 0; i < width * height; i++) {
-      const alpha = rawData.data[i * 4 + 3];
-      if (alpha < 10) {
-        imageData.data[i * 4 + 3] = 0;
-        continue;
-      }
-
-      // Only skip pixels that are background (border-reachable near-white)
-      if (backgroundMask && backgroundMask[i]) {
-        imageData.data[i * 4 + 3] = 0;
-        continue;
-      }
-
-      const r = rawData.data[i * 4];
-      const g = rawData.data[i * 4 + 1];
-      const b = rawData.data[i * 4 + 2];
-
-      // Find nearest palette color
-      let bestDist = Infinity, bestIdx = 0;
-      for (let c = 0; c < palette.length; c++) {
-        const d = colorDistSq(r, g, b, palette[c][0], palette[c][1], palette[c][2]);
-        if (d < bestDist) { bestDist = d; bestIdx = c; }
-      }
-
-      const inLayer = bestIdx === idx;
-      imageData.data[i * 4] = 0;
-      imageData.data[i * 4 + 1] = 0;
-      imageData.data[i * 4 + 2] = 0;
-      imageData.data[i * 4 + 3] = inLayer ? 255 : 0;
+    // Solid binary mask: fully opaque for this colour, fully transparent elsewhere
+    for (let i = 0; i < n; i++) {
+      if (labels[i] === idx) imageData.data[i * 4 + 3] = 255;
     }
 
     ctx.putImageData(imageData, 0, 0);
 
-    const [pr, pg, pb] = color;
+    const { r: pr, g: pg, b: pb } = palette[idx];
     const hex = '#' + [pr, pg, pb].map(v => v.toString(16).padStart(2, '0')).join('');
     const luminance = (0.299 * pr + 0.587 * pg + 0.114 * pb) / 255;
 
-    return {
+    layers.push({
       id: idx,
-      name: `Color ${idx + 1}`,
+      name: `Color ${layers.length + 1}`,
       canvas,
       dataUrl: canvas.toDataURL('image/png'),
       description: hex.toUpperCase(),
@@ -777,8 +717,8 @@ export function generateCartoonLayers(rawData, width, height, numColors, whiteTo
       luminance,
       visible: true,
       mode: 'cartoon',
-    };
-  });
+    });
+  }
 
       // Sort by luminance (darkest first, like paint order)
   const sorted = layers.sort((a, b) => a.luminance - b.luminance);
@@ -814,6 +754,24 @@ export function generateCartoonLayers(rawData, width, height, numColors, whiteTo
   });
 
   return sorted;
+}
+
+/**
+ * Cartoon V1 engine (unchanged behaviour).
+ * Cartoon-only pipeline (see cartoonProcessor.js):
+ * smoothing → outline protection → OKLab quantisation → spatial & region cleanup.
+ * Returns a cleaned colour label map; every pixel belongs to at most one colour.
+ */
+export function generateCartoonLayers(rawData, width, height, numColors, whiteTolerance = 15, bridgeIslands = false, bridgeWidth = 2, cornerMarkers = false, markerOptions = { armLength: 14, armWidth: 3, margin: 24, color: 'black' }, minIslandSize = 200, bleedRadius = 1, cartoonSettings = null) {
+  const { labels, palette } = buildCartoonSegments(
+    rawData, width, height, numColors, whiteTolerance, cartoonSettings
+  );
+
+  return assembleCartoonLayers({
+    labels, palette, width, height,
+    bridgeIslands, bridgeWidth, cornerMarkers, markerOptions,
+    minIslandSize, bleedRadius,
+  });
 }
 
 // ─── SVG Export: Scanline run-length path encoding + corner markers ─────────
@@ -948,7 +906,7 @@ export function canvasToSVG(canvas, fillColor = 'black', options = {}) {
 
 // ─── Composite preview ───────────────────────────────────────────────────────
 
-export function generateComposite(layers, width, height, mode, customColors = null, addCornerMarkers = false, colorizeRealistic = false) {
+export function generateComposite(layers, width, height, mode, customColors = null, addCornerMarkers = false, colorizeRealistic = false, customizedLayers = null) {
   const canvas = document.createElement('canvas');
   canvas.width = width;
   canvas.height = height;
@@ -985,9 +943,31 @@ export function generateComposite(layers, width, height, mode, customColors = nu
     const visibleLayers = layers.filter(l => l.visible);
 
     if (colorizeRealistic) {
-      // Canvas pixels already carry the original image color — draw directly
-      visibleLayers.forEach((layer) => {
-        ctx.drawImage(layer.canvas, 0, 0);
+      // Canvas pixels already carry the original image color — draw directly,
+      // unless the user overrode a layer's color, in which case tint that layer.
+      layers.forEach((layer, idx) => {
+        if (!layer.visible) return;
+        const overridden = customizedLayers && customizedLayers.has(idx) && customColors;
+        if (overridden) {
+          const tmp = document.createElement('canvas');
+          tmp.width = width;
+          tmp.height = height;
+          const tCtx = tmp.getContext('2d');
+          tCtx.drawImage(layer.canvas, 0, 0);
+          const imgData = tCtx.getImageData(0, 0, width, height);
+          const { r, g, b } = hexToRgb(customColors[idx % customColors.length]);
+          for (let i = 0; i < width * height; i++) {
+            if (imgData.data[i * 4 + 3] > 0) {
+              imgData.data[i * 4] = r;
+              imgData.data[i * 4 + 1] = g;
+              imgData.data[i * 4 + 2] = b;
+            }
+          }
+          tCtx.putImageData(imgData, 0, 0);
+          ctx.drawImage(tmp, 0, 0);
+        } else {
+          ctx.drawImage(layer.canvas, 0, 0);
+        }
       });
     } else {
       const colors = customColors || getRealisticLayerColors(layers.length);

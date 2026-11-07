@@ -1,3 +1,5 @@
+const db = globalThis.__B44_DB__ || { auth:{ isAuthenticated: async()=>false, me: async()=>null }, entities:new Proxy({}, { get:()=>({ filter:async()=>[], get:async()=>null, create:async()=>({}), update:async()=>({}), delete:async()=>({}) }) }), integrations:{ Core:{ UploadFile:async()=>({ file_url:'' }) } } };
+
 @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600&family=Bungee:wght@400&family=Passion+One:wght@400;700&family=Urbanist:wght@300;400;500;600;700&display=swap');
 
 @tailwind base;
@@ -87,7 +89,7 @@
 
   body {
     @apply text-foreground;
-    background-image: url('/src/assets/background.png');
+    background-image: url('https://media.db.com/images/public/69ec063e95ff412fb6368fde/36d9b6dac_ChatGPTImageJun23202606_02_09PM.png');
     background-size: cover;
     background-attachment: fixed;
     background-repeat: no-repeat;

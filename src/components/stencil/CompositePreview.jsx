@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Eye } from 'lucide-react';
+import { Eye, Layers } from 'lucide-react';
+import LayerMaskCanvas from './LayerMaskCanvas';
 
 /**
  * Draws red crosshair registration marks at the four corners of the image
@@ -52,11 +53,30 @@ function CornerMarkersOverlay({ imgRect, containerRect }) {
   );
 }
 
-export default function CompositePreview({ compositeUrl, originalUrl, cornerMarkers = false }) {
+export default function CompositePreview({
+  compositeUrl,
+  originalUrl,
+  cornerMarkers = false,
+  // When a layer is selected the main preview shows that single layer instead
+  // of the stacked composite. The layer data comes straight from the generated
+  // layer, so nothing is recomputed to inspect it.
+  selectedLayer = null,
+  selectedIndex = 0,
+  onClearSelected,
+  previewColor = '#333',
+  colorOverride = null,
+}) {
   const [showOriginal, setShowOriginal] = useState(false);
   const imgRef = useRef(null);
   const containerRef = useRef(null);
   const [rects, setRects] = useState(null);
+
+  const inspecting = !!selectedLayer;
+
+  // Inspecting a layer always leaves the original-image toggle behind
+  useEffect(() => {
+    if (selectedLayer) setShowOriginal(false);
+  }, [selectedLayer]);
 
   // Measure image + container after render / resize
   useEffect(() => {
@@ -73,7 +93,7 @@ export default function CompositePreview({ compositeUrl, originalUrl, cornerMark
     if (imgRef.current) ro.observe(imgRef.current);
     if (containerRef.current) ro.observe(containerRef.current);
     return () => ro.disconnect();
-  }, [compositeUrl, showOriginal]);
+  }, [compositeUrl, showOriginal, selectedLayer]);
 
   return (
     <div className="relative rounded-2xl overflow-hidden border border-border bg-card">
@@ -82,38 +102,68 @@ export default function CompositePreview({ compositeUrl, originalUrl, cornerMark
         ref={containerRef}
         className="relative flex items-center justify-center min-h-[280px] bg-[repeating-conic-gradient(hsl(220,12%,90%)_0%_25%,white_0%_50%)] bg-[length:20px_20px]"
       >
-        <motion.img
-          ref={imgRef}
-          key={showOriginal ? 'original' : 'composite'}
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ duration: 0.25 }}
-          src={showOriginal ? originalUrl : compositeUrl}
-          alt="Stencil preview"
-          className="max-w-full max-h-[460px] object-contain"
-          onLoad={() => {
-            if (!imgRef.current || !containerRef.current) return;
-            setRects({
-              img: imgRef.current.getBoundingClientRect(),
-              container: containerRef.current.getBoundingClientRect(),
-            });
-          }}
-        />
+        {inspecting ? (
+          <motion.div
+            key={`layer-${selectedIndex}`}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.2 }}
+            className="flex items-center justify-center w-full px-4 py-4"
+          >
+            <LayerMaskCanvas
+              layer={{ ...selectedLayer, previewColor, colorOverride }}
+              className="max-w-full max-h-[460px]"
+              dimHidden={false}
+            />
+          </motion.div>
+        ) : (
+          <motion.img
+            ref={imgRef}
+            key={showOriginal ? 'original' : 'composite'}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.25 }}
+            src={showOriginal ? originalUrl : compositeUrl}
+            alt="Stencil preview"
+            className="max-w-full max-h-[460px] object-contain"
+            onLoad={() => {
+              if (!imgRef.current || !containerRef.current) return;
+              setRects({
+                img: imgRef.current.getBoundingClientRect(),
+                container: containerRef.current.getBoundingClientRect(),
+              });
+            }}
+          />
+        )}
 
-        {/* Corner marker overlay — only shown on stencil view */}
-        {cornerMarkers && !showOriginal && rects && (
+        {/* Corner marker overlay — only shown on the stacked stencil view */}
+        {cornerMarkers && !showOriginal && !inspecting && rects && (
           <CornerMarkersOverlay imgRect={rects.img} containerRect={rects.container} />
         )}
       </div>
 
-      {/* Toggle */}
-      <button
-        onClick={() => setShowOriginal(s => !s)}
-        className="absolute bottom-3 right-3 flex items-center gap-1.5 bg-card/90 backdrop-blur border border-border rounded-full px-3 py-1.5 text-xs font-heading font-medium hover:bg-card transition-colors shadow"
-      >
-        <Eye className="w-3 h-3" />
-        {showOriginal ? 'Show Stencil' : 'Show Original'}
-      </button>
+      {inspecting ? (
+        <div className="absolute bottom-3 right-3 flex items-center gap-2">
+          <span className="hidden sm:inline-flex items-center bg-card/90 backdrop-blur border border-border rounded-full px-3 py-1.5 text-xs font-body text-muted-foreground shadow">
+            {selectedLayer.name}
+          </span>
+          <button
+            onClick={onClearSelected}
+            className="flex items-center gap-1.5 bg-card/90 backdrop-blur border border-border rounded-full px-3 py-1.5 text-xs font-heading font-medium hover:bg-card transition-colors shadow"
+          >
+            <Layers className="w-3 h-3" />
+            Back to stacked
+          </button>
+        </div>
+      ) : (
+        <button
+          onClick={() => setShowOriginal(s => !s)}
+          className="absolute bottom-3 right-3 flex items-center gap-1.5 bg-card/90 backdrop-blur border border-border rounded-full px-3 py-1.5 text-xs font-heading font-medium hover:bg-card transition-colors shadow"
+        >
+          <Eye className="w-3 h-3" />
+          {showOriginal ? 'Show Stencil' : 'Show Original'}
+        </button>
+      )}
     </div>
   );
 }

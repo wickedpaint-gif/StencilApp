@@ -3,9 +3,11 @@ import { Slider } from '@/components/ui/slider';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
-import { Download, RotateCcw, Layers, Palette, Crosshair, GitBranch, ScanSearch, Paintbrush, Ruler, Maximize2, Scissors, Sparkles, Droplets } from 'lucide-react';
+import { Download, RotateCcw, Layers, Crosshair, GitBranch, ScanSearch, Paintbrush, Ruler, Maximize2, Scissors, Sparkles, Droplets } from 'lucide-react';
 import { renderColoredCanvas, downloadZip } from '@/lib/stencilProcessor';
+import { burnCornerMarkers } from '@/lib/islandBridge';
 import ModeSelector from './ModeSelector';
+import OptionGroup from './OptionGroup';
 import SvgExportDialog from './SvgExportDialog';
 import KofiDialog from './KofiDialog';
 
@@ -15,14 +17,20 @@ export default function ControlsPanel({
   numLayers,
   onNumLayersChange,
   detectedColors,
-  whiteTolerance,
-  onWhiteToleranceChange,
   blurRadius,
   onBlurRadiusChange,
   cleanupSize = 0,
   onCleanupSizeChange,
   bleedRadius = 1,
   onBleedRadiusChange,
+  cartoonEdgeSmoothing = 'low',
+  onCartoonEdgeSmoothingChange,
+  cartoonDetailRemoval = 10,
+  onCartoonDetailRemovalChange,
+  cartoonSimplification = 'medium',
+  onCartoonSimplificationChange,
+  devTools = false,
+  onOpenCartoonDebug,
   removeBackground: removeBackgroundEnabled,
   onRemoveBackgroundChange,
   removingBackground,
@@ -59,6 +67,19 @@ export default function ControlsPanel({
         paletteColor: layer.paletteColor,
         swatchColor: (layerColors && layerColors[idx]) || undefined,
       });
+
+      // Burn corner markers using the layer's preview-scaled marker settings so the
+      // PNG matches the thumbnail exactly (SVG export keeps its own path).
+      if (layer.addCornerMarkers ?? cornerMarkers) {
+        const mo = layer.markerOptions || {};
+        burnCornerMarkers(
+          colored,
+          mo.armLength ?? markerArmLength,
+          mo.armWidth ?? markerArmWidth,
+          mo.margin ?? markerMargin
+        );
+      }
+
       return {
         name: `stencil-layer-${String(idx + 1).padStart(2, '0')}.png`,
         dataUrl: colored.toDataURL('image/png'),
@@ -164,29 +185,71 @@ export default function ControlsPanel({
         </div>
       }
 
-      {/* White tolerance (cartoon only) */}
+      {/* Cartoon V2 processing inspector (development only) */}
+      {mode === 'cartoon' && devTools &&
+      <Button
+        variant="outline"
+        size="sm"
+        className="w-full h-7 text-[10px] font-body"
+        onClick={onOpenCartoonDebug}>
+
+        Inspect processing stages
+      </Button>
+      }
+
+      {/* Cartoon cleanup workflow */}
       {mode === 'cartoon' &&
-      <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <Label className="text-xs font-heading font-medium flex items-center gap-1.5">
-              <Palette className="w-3.5 h-3.5 text-primary" />
-              White Tolerance
-            </Label>
-            <span className="text-sm font-heading font-bold text-primary tabular-nums">
-              {whiteTolerance}
-            </span>
-          </div>
-          <Slider
-          value={[whiteTolerance]}
-          onValueChange={([v]) => onWhiteToleranceChange(v)}
-          min={0}
-          max={60}
-          step={1} />
+      <>
+          <OptionGroup
+          label="Edge Smoothing"
+          icon={Sparkles}
+          value={cartoonEdgeSmoothing}
+          onChange={onCartoonEdgeSmoothingChange}
+          options={[
+          { value: 'off', label: 'Off' },
+          { value: 'low', label: 'Low' },
+          { value: 'medium', label: 'Medium' }]
+          } />
         
-          <p className="text-[10px] text-muted-foreground font-body">
-            Skip near-white pixels (background removal)
+
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <Label className="text-xs font-heading font-medium flex items-center gap-1.5">
+                <ScanSearch className="w-3.5 h-3.5 text-primary" />
+                Detail Removal
+              </Label>
+              <span className="text-sm font-heading font-bold text-primary tabular-nums">
+                {cartoonDetailRemoval === 0 ? 'Off' : `${cartoonDetailRemoval}px`}
+              </span>
+            </div>
+            <Slider
+            value={[cartoonDetailRemoval]}
+            onValueChange={([v]) => onCartoonDetailRemovalChange(v)}
+            min={0}
+            max={50}
+            step={1} />
+          
+            <p className="text-[10px] text-muted-foreground font-body leading-snug">
+              Fragments smaller than this area are merged into the neighbouring colour.
+            </p>
+          </div>
+
+          <OptionGroup
+          label="Region Simplification"
+          icon={Layers}
+          value={cartoonSimplification}
+          onChange={onCartoonSimplificationChange}
+          options={[
+          { value: 'off', label: 'Off' },
+          { value: 'low', label: 'Low' },
+          { value: 'medium', label: 'Med' },
+          { value: 'high', label: 'High' }]
+          } />
+        
+          <p className="text-[10px] text-muted-foreground font-body leading-snug -mt-2">
+            Smooths noisy colour edges and removes thin slivers along black outlines.
           </p>
-        </div>
+        </>
       }
 
       {/* Bleed (cartoon only) */}

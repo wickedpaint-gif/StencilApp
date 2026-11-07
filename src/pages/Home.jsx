@@ -1,10 +1,10 @@
+const db = globalThis.__B44_DB__ || { auth:{ isAuthenticated: async()=>false, me: async()=>null }, entities:new Proxy({}, { get:()=>({ filter:async()=>[], get:async()=>null, create:async()=>({}), update:async()=>({}), delete:async()=>({}) }) }), integrations:{ Core:{ UploadFile:async()=>({ file_url:'' }) } } };
+
 import React, { useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Layers, Scissors } from 'lucide-react';
 import ImageUploader from '@/components/stencil/ImageUploader';
-import Logo from "@/assets/Logo.png";
-import Heading from "@/assets/Heading.png";
 
 export default function Home() {
   const navigate = useNavigate();
@@ -20,7 +20,7 @@ export default function Home() {
       {/* Nav */}
       <nav className="flex items-center px-6 md:px-12 py-3 bg-black">
         <img
-          src={Logo}
+          src="https://media.db.com/images/public/69ec063e95ff412fb6368fde/5ac03c47f_STENCILAPPLOGO.png"
           alt="Stencil App"
           className="h-10 w-auto"
         />
@@ -38,7 +38,7 @@ export default function Home() {
             <Scissors className="w-3.5 h-3.5" />
             For Artists &amp; Makers
           </div>
-          <img src={Heading}
+          <img src="https://media.db.com/images/public/69ec063e95ff412fb6368fde/7154c0163_Heading.png"
 
           alt="Turn Images into Multi-Layer Stencils"
           className="w-full max-w-xl mx-auto" />

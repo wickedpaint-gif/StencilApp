@@ -1,3 +1,5 @@
+const db = globalThis.__B44_DB__ || { auth:{ isAuthenticated: async()=>false, me: async()=>null }, entities:new Proxy({}, { get:()=>({ filter:async()=>[], get:async()=>null, create:async()=>({}), update:async()=>({}), delete:async()=>({}) }) }), integrations:{ Core:{ UploadFile:async()=>({ file_url:'' }) } } };
+
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { removeBackground } from '@/services/backgroundRemoval';
 import { Link } from 'react-router-dom';
@@ -9,6 +11,38 @@ import ImageUploader from '@/components/stencil/ImageUploader';
 import CompositePreview from '@/components/stencil/CompositePreview';
 import LayerCard from '@/components/stencil/LayerCard';
 import ControlsPanel from '@/components/stencil/ControlsPanel';
+import CartoonDebugDialog from '@/components/stencil/CartoonDebugDialog';
+import { generateCartoonV2Layers } from '@/lib/cartoonV2';
+import { stageToDataUrl } from '@/lib/cartoonV2/debugStages';
+
+// Development-only inspector (also enabled with ?dev=1). The engine switch is
+// always available in Cartoon mode; the stage inspector is not.
+const DEV_TOOLS =
+  typeof window !== 'undefined' &&
+  (import.meta.env.DEV || new URLSearchParams(window.location.search).has('dev'));
+
+// Cartoon V2 is the production Cartoon engine. Cartoon V1 is no longer exposed
+// in the interface but stays in the codebase as a rollback path — load the
+// editor with ?engine=v1 to switch back.
+const CARTOON_ENGINE =
+  typeof window !== 'undefined' &&
+  new URLSearchParams(window.location.search).get('engine') === 'v1'
+    ? 'v1'
+    : 'v2';
+
+// Only used for the automatic layer-count estimate and the V1 rollback, both of
+// which still skip near-white samples. Cartoon V2 segmentation never looks at
+// colour to decide what the background is.
+const LEGACY_WHITE_TOLERANCE = 15;
+
+// Cartoon starts with everything off so the artwork's own detail survives until
+// the user asks for smoothing, simplification or bleed.
+const CARTOON_DEFAULTS = {
+  edgeSmoothing: 'off',
+  detailRemoval: 0,
+  regionSimplification: 'off',
+  bleedRadius: 0,
+};
 
 import {
   imageToGrayscaleData,
@@ -25,25 +59,34 @@ export default function StencilEditor() {
   const [imageData, setImageData] = useState(null); // { grayscale, rawData, width, height }
   const [layers, setLayers] = useState([]);
   const [compositeUrl, setCompositeUrl] = useState(null);
+  // Index of the layer being inspected in the main preview (null = stacked view)
+  const [selectedLayer, setSelectedLayer] = useState(null);
   const [mode, setMode] = useState('realistic');
   const [numLayers, setNumLayers] = useState(4);
   const [detectedColors, setDetectedColors] = useState(null);
   const [layerThresholds, setLayerThresholds] = useState(() => defaultRealisticThresholds(4));
   const [layerColors, setLayerColors] = useState(() => getPresetColors(4));
-  const [whiteTolerance, setWhiteTolerance] = useState(15);
   const [bridgeIslands, setBridgeIslands] = useState(false);
   const [bridgeWidth, setBridgeWidth] = useState(2);
   const [minIslandSize, setMinIslandSize] = useState(200);
   const [cornerMarkers, setCornerMarkers] = useState(true);
   const [colorizeRealistic, setColorizeRealistic] = useState(false);
+  const [customizedRealistic, setCustomizedRealistic] = useState(new Set());
   const [blurRadius, setBlurRadius] = useState(0);
   const [cleanupSize, setCleanupSize] = useState(0);
-  const [bleedRadius, setBleedRadius] = useState(1);
+  const [bleedRadius, setBleedRadius] = useState(CARTOON_DEFAULTS.bleedRadius);
   const [debugBridges, setDebugBridges] = useState(false);
+  // Cartoon-only cleanup controls
+  const [cartoonEdgeSmoothing, setCartoonEdgeSmoothing] = useState(CARTOON_DEFAULTS.edgeSmoothing);
+  const [cartoonDetailRemoval, setCartoonDetailRemoval] = useState(CARTOON_DEFAULTS.detailRemoval);
+  const [cartoonSimplification, setCartoonSimplification] = useState(CARTOON_DEFAULTS.regionSimplification);
   const [removeBg, setRemoveBg] = useState(false);
   const [removingBg, setRemovingBg] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState(null);
+  const [cartoonDebugOpen, setCartoonDebugOpen] = useState(false);
+  const [v2Stages, setV2Stages] = useState([]);
+  const [v2Quality, setV2Quality] = useState(null);
   const debounceRef = useRef(null);
   const originalImageRef = useRef(null); // stores the original img element
 
@@ -63,12 +106,13 @@ export default function StencilEditor() {
     setOriginalUrl(dataUrl);
     originalImageRef.current = img;
     setRemoveBg(false);
+    setSelectedLayer(null);
     const data = imageToGrayscaleData(img);
     setImageData(data);
-    const detected = estimateColorCount(data.rawData, whiteTolerance);
+    const detected = estimateColorCount(data.rawData, LEGACY_WHITE_TOLERANCE);
     setDetectedColors(detected);
     if (mode === 'cartoon') setNumLayers(detected);
-  }, [mode, whiteTolerance]);
+  }, [mode]);
 
   // Pick up image passed from Home page via sessionStorage
   useEffect(() => {
@@ -82,13 +126,14 @@ export default function StencilEditor() {
 
   const handleRemoveBgToggle = useCallback(async (enabled) => {
     setRemoveBg(enabled);
+    setSelectedLayer(null);
     if (!enabled) {
       // Restore original image
       const img = originalImageRef.current;
       if (img) {
         const data = imageToGrayscaleData(img);
         setImageData(data);
-        const detected = estimateColorCount(data.rawData, whiteTolerance);
+        const detected = estimateColorCount(data.rawData, LEGACY_WHITE_TOLERANCE);
         setDetectedColors(detected);
         if (mode === 'cartoon') setNumLayers(detected);
       }
@@ -112,7 +157,7 @@ export default function StencilEditor() {
     img.onload = () => {
       const data = imageToGrayscaleData(img);
       setImageData(data);
-      const detected = estimateColorCount(data.rawData, whiteTolerance);
+      const detected = estimateColorCount(data.rawData, LEGACY_WHITE_TOLERANCE);
       setDetectedColors(detected);
       if (mode === 'cartoon') setNumLayers(detected);
       setRemovingBg(false);
@@ -123,7 +168,7 @@ export default function StencilEditor() {
       setRemovingBg(false);
     };
     img.src = result.imageUrl;
-  }, [originalUrl, whiteTolerance, mode]);
+  }, [originalUrl, mode]);
 
   // Debounced re-generation when any setting changes
   useEffect(() => {
@@ -165,28 +210,63 @@ export default function StencilEditor() {
               cleanupSize
             );
           } else {
-            newLayers = generateCartoonLayers(
-              imageData.rawData,
-              imageData.width,
-              imageData.height,
-              numLayers,
-              whiteTolerance,
-              bridgeIslands,
-              bridgeWidth,
-              cornerMarkers,
-              {
-                armLength: scaledMarkerArmLength,
-                armWidth: scaledMarkerArmWidth,
-                margin: scaledMarkerMargin,
-                color: markerColor
-              },
-              minIslandSize,
-              bleedRadius
-            );
+            const markerOpts = {
+              armLength: scaledMarkerArmLength,
+              armWidth: scaledMarkerArmWidth,
+              margin: scaledMarkerMargin,
+              color: markerColor
+            };
+
+            if (CARTOON_ENGINE === 'v2') {
+              // Cartoon V2 — region-based engine (SLIC + RAG merging)
+              const result = generateCartoonV2Layers(
+                imageData.rawData,
+                imageData.width,
+                imageData.height,
+                numLayers,
+                {
+                  bridgeIslands,
+                  bridgeWidth,
+                  cornerMarkers,
+                  markerOptions: markerOpts,
+                  minIslandSize,
+                  bleedRadius,
+                  edgeSmoothing: cartoonEdgeSmoothing,
+                  detailRemoval: cartoonDetailRemoval,
+                  regionSimplification: cartoonSimplification,
+                  cacheToken: imageData,
+                  debug: DEV_TOOLS && cartoonDebugOpen
+                }
+              );
+              newLayers = result.layers;
+              setV2Quality(result.quality || null);
+              setV2Stages(result.stages.map((s) => ({ ...s, dataUrl: stageToDataUrl(s) })));
+            } else {
+              // Cartoon V1 — original implementation, kept as fallback
+              newLayers = generateCartoonLayers(
+                imageData.rawData,
+                imageData.width,
+                imageData.height,
+                numLayers,
+                LEGACY_WHITE_TOLERANCE,
+                bridgeIslands,
+                bridgeWidth,
+                cornerMarkers,
+                markerOpts,
+                minIslandSize,
+                bleedRadius,
+                {
+                  edgeSmoothing: cartoonEdgeSmoothing,
+                  detailRemoval: cartoonDetailRemoval,
+                  regionSimplification: cartoonSimplification
+                }
+              );
+              setV2Stages([]);
+            }
           }
 
           setLayers(newLayers);
-          const composite = generateComposite(newLayers, imageData.width, imageData.height, mode, mode === 'realistic' ? layerColors : null, false, colorizeRealistic);
+          const composite = generateComposite(newLayers, imageData.width, imageData.height, mode, mode === 'realistic' ? layerColors : null, false, colorizeRealistic, colorizeRealistic ? customizedRealistic : null);
           setCompositeUrl(composite);
         } catch (e) {
           console.error(e);
@@ -198,13 +278,13 @@ export default function StencilEditor() {
     }, 400);
 
     return () => clearTimeout(debounceRef.current);
-  }, [imageData, mode, numLayers, layerThresholds, whiteTolerance, bridgeIslands, bridgeWidth, minIslandSize, blurRadius, cleanupSize, bleedRadius, cornerMarkers, colorizeRealistic, markerArmLength, markerArmWidth, markerMargin, markerColor, debugBridges]);
+  }, [imageData, mode, numLayers, layerThresholds, bridgeIslands, bridgeWidth, minIslandSize, blurRadius, cleanupSize, bleedRadius, cornerMarkers, colorizeRealistic, markerArmLength, markerArmWidth, markerMargin, markerColor, debugBridges, cartoonEdgeSmoothing, cartoonDetailRemoval, cartoonSimplification, cartoonDebugOpen]);
 
   const handleToggleVisibility = (layerId) => {
     setLayers((prev) => {
       const updated = prev.map((l) => l.id === layerId ? { ...l, visible: !l.visible } : l);
       if (imageData) {
-        const composite = generateComposite(updated, imageData.width, imageData.height, mode, mode === 'realistic' ? layerColors : null, false, colorizeRealistic);
+        const composite = generateComposite(updated, imageData.width, imageData.height, mode, mode === 'realistic' ? layerColors : null, false, colorizeRealistic, colorizeRealistic ? customizedRealistic : null);
         setCompositeUrl(composite);
       }
       return updated;
@@ -215,6 +295,14 @@ export default function StencilEditor() {
     setNumLayers(n);
     setLayerThresholds(defaultRealisticThresholds(n));
     setLayerColors(getPresetColors(n));
+    setCustomizedRealistic(new Set());
+    setSelectedLayer(null);
+  };
+
+  // Click a layer card to inspect that layer; click it again to go back to the
+  // stacked stencil. Index-based, so it follows regenerated layers.
+  const handleLayerSelect = (idx) => {
+    setSelectedLayer((prev) => (prev === idx ? null : idx));
   };
 
   const handleLayerThresholdChange = (layerIndex, newThreshold) => {
@@ -235,14 +323,27 @@ export default function StencilEditor() {
   };
 
   const handleLayerColorChange = (layerIndex, newColor) => {
-    setLayerColors((prev) => {
-      const updated = [...prev];
-      updated[layerIndex] = newColor;
-      return updated;
-    });
-    // Regenerate composite with new colors
+    const newLayerColors = [...layerColors];
+    newLayerColors[layerIndex] = newColor;
+    setLayerColors(newLayerColors);
+
+    // In colorize mode, mark this layer as individually overridden (keeps image
+    // colors for all other layers).
+    let newCustomized = customizedRealistic;
+    if (mode === 'realistic' && colorizeRealistic) {
+      newCustomized = new Set(customizedRealistic);
+      newCustomized.add(layerIndex);
+      setCustomizedRealistic(newCustomized);
+    }
+
+    // Regenerate composite with new colors (keep colorize mode + overrides)
     if (imageData && layers.length > 0) {
-      const composite = generateComposite(layers, imageData.width, imageData.height, mode, mode === 'realistic' ? layerColors : null, false);
+      const composite = generateComposite(
+        layers, imageData.width, imageData.height, mode,
+        mode === 'realistic' ? newLayerColors : null,
+        false, colorizeRealistic,
+        colorizeRealistic ? newCustomized : null
+      );
       setCompositeUrl(composite);
     }
   };
@@ -250,6 +351,7 @@ export default function StencilEditor() {
   // When switching to cartoon, snap numLayers to detected count
   const handleModeChange = (newMode) => {
     setMode(newMode);
+    setSelectedLayer(null);
     if (newMode === 'cartoon' && detectedColors !== null) {
       setNumLayers(detectedColors);
     }
@@ -283,9 +385,25 @@ export default function StencilEditor() {
         const imgData0 = clean0.getContext('2d').getImageData(0, 0, canvas0.width, canvas0.height);
         const imgData1 = clean1.getContext('2d').getImageData(0, 0, canvas0.width, canvas0.height);
 
-        // Merge: if either clean layer has opaque pixels, make it opaque
+        // Sample the base layer's ink color (first opaque pixel) so the merged
+        // fill is one solid color matching the layer, instead of black patches.
+        let baseR = 0, baseG = 0, baseB = 0, found = false;
+        for (let i = 0; i < imgData0.data.length; i += 4) {
+          if (imgData0.data[i + 3] > 128) {
+            baseR = imgData0.data[i]; baseG = imgData0.data[i + 1]; baseB = imgData0.data[i + 2]; found = true; break;
+          }
+        }
+        if (!found) {
+          for (let i = 0; i < imgData1.data.length; i += 4) {
+            if (imgData1.data[i + 3] > 128) {
+              baseR = imgData1.data[i]; baseG = imgData1.data[i + 1]; baseB = imgData1.data[i + 2]; break;
+            }
+          }
+        }
+        // Merge: if either clean layer has opaque pixels, make it opaque with the base color
         for (let i = 0; i < imgData0.data.length; i += 4) {
           if (imgData0.data[i + 3] > 128 || imgData1.data[i + 3] > 128) {
+            imgData0.data[i] = baseR; imgData0.data[i + 1] = baseG; imgData0.data[i + 2] = baseB;
             imgData0.data[i + 3] = 255;
           }
         }
@@ -306,9 +424,25 @@ export default function StencilEditor() {
         const imgData0 = clean0.getContext('2d').getImageData(0, 0, canvas1.width, canvas1.height);
         const imgData1 = clean1.getContext('2d').getImageData(0, 0, canvas1.width, canvas1.height);
 
-        // Merge: if either clean layer has opaque pixels, make it opaque
+        // Sample this layer's ink color (first opaque pixel) so the merged fill
+        // is one solid color matching the layer, instead of black patches.
+        let baseR = 0, baseG = 0, baseB = 0, found = false;
+        for (let i = 0; i < imgData1.data.length; i += 4) {
+          if (imgData1.data[i + 3] > 128) {
+            baseR = imgData1.data[i]; baseG = imgData1.data[i + 1]; baseB = imgData1.data[i + 2]; found = true; break;
+          }
+        }
+        if (!found) {
+          for (let i = 0; i < imgData0.data.length; i += 4) {
+            if (imgData0.data[i + 3] > 128) {
+              baseR = imgData0.data[i]; baseG = imgData0.data[i + 1]; baseB = imgData0.data[i + 2]; break;
+            }
+          }
+        }
+        // Merge: if either clean layer has opaque pixels, make it opaque with the base color
         for (let i = 0; i < imgData1.data.length; i += 4) {
           if (imgData0.data[i + 3] > 128 || imgData1.data[i + 3] > 128) {
+            imgData1.data[i] = baseR; imgData1.data[i + 1] = baseG; imgData1.data[i + 2] = baseB;
             imgData1.data[i + 3] = 255;
           }
         }
@@ -322,7 +456,7 @@ export default function StencilEditor() {
 
       // Regenerate composite
       if (imageData) {
-        const composite = generateComposite(updated, imageData.width, imageData.height, mode, mode === 'realistic' ? layerColors : null, false, colorizeRealistic);
+        const composite = generateComposite(updated, imageData.width, imageData.height, mode, mode === 'realistic' ? layerColors : null, false, colorizeRealistic, colorizeRealistic ? customizedRealistic : null);
         setCompositeUrl(composite);
       }
 
@@ -335,20 +469,24 @@ export default function StencilEditor() {
     setImageData(null);
     setLayers([]);
     setCompositeUrl(null);
+    setSelectedLayer(null);
     setMode('realistic');
     setNumLayers(4);
     setLayerThresholds(defaultRealisticThresholds(4));
     setLayerColors(getPresetColors(4));
-    setWhiteTolerance(15);
     setBridgeIslands(false);
     setBridgeWidth(2);
     setMinIslandSize(200);
     setDebugBridges(false);
     setCornerMarkers(true);
     setColorizeRealistic(false);
+    setCustomizedRealistic(new Set());
     setBlurRadius(0);
     setCleanupSize(0);
-    setBleedRadius(1);
+    setBleedRadius(CARTOON_DEFAULTS.bleedRadius);
+    setCartoonEdgeSmoothing(CARTOON_DEFAULTS.edgeSmoothing);
+    setCartoonDetailRemoval(CARTOON_DEFAULTS.detailRemoval);
+    setCartoonSimplification(CARTOON_DEFAULTS.regionSimplification);
     setRemoveBg(false);
     setDetectedColors(null);
     setError(null);
@@ -357,9 +495,26 @@ export default function StencilEditor() {
     setMarkerArmWidth(3);
     setMarkerMargin(24);
     setMarkerColor('black');
+    setCartoonDebugOpen(false);
+    setV2Stages([]);
+    setV2Quality(null);
   };
 
   const hasImage = !!imageData;
+
+  // The layer shown enlarged in the main preview (null = stacked stencil).
+  // Guarded against regeneration that produces fewer layers.
+  const inspectedLayer = selectedLayer != null && layers[selectedLayer] ? layers[selectedLayer] : null;
+  const inspectedIndex = inspectedLayer ? selectedLayer : 0;
+  const inspectedSwatch = inspectedLayer
+    ? inspectedLayer.mode === 'cartoon'
+      ? inspectedLayer.paletteColor || '#333'
+      : (layerColors && layerColors[selectedLayer]) || '#333'
+    : '#333';
+  const inspectedColorOverride =
+    inspectedLayer && mode === 'realistic' && colorizeRealistic && customizedRealistic.has(selectedLayer)
+      ? layerColors[selectedLayer] || null
+      : null;
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -372,7 +527,7 @@ export default function StencilEditor() {
             </Button>
           </Link>
           <img
-            src="https://media.base44.com/images/public/69ec063e95ff412fb6368fde/5ac03c47f_STENCILAPPLOGO.png"
+            src="https://media.db.com/images/public/69ec063e95ff412fb6368fde/5ac03c47f_STENCILAPPLOGO.png"
             alt="Stencil App"
             className="h-10 w-auto" />
           
@@ -434,7 +589,12 @@ export default function StencilEditor() {
                 <CompositePreview
                   compositeUrl={compositeUrl}
                   originalUrl={originalUrl}
-                  cornerMarkers={false} />
+                  cornerMarkers={false}
+                  selectedLayer={inspectedLayer}
+                  selectedIndex={inspectedIndex}
+                  onClearSelected={() => setSelectedLayer(null)}
+                  previewColor={inspectedSwatch}
+                  colorOverride={inspectedColorOverride} />
 
                 }
 
@@ -470,12 +630,15 @@ export default function StencilEditor() {
                       index={idx}
                       totalLayers={layers.length}
                       onToggleVisibility={handleToggleVisibility}
+                      selected={selectedLayer === idx}
+                      onSelect={handleLayerSelect}
                       cornerMarkers={cornerMarkers}
                       layerThreshold={mode === 'realistic' ? layerThresholds[idx] : undefined}
                       onThresholdChange={mode === 'realistic' ? (v) => handleLayerThresholdChange(idx, v) : undefined}
                       onMerge={mode === 'realistic' ? handleMergeLayers : undefined}
                       layerColors={mode === 'realistic' ? layerColors : undefined}
                       onColorChange={mode === 'realistic' ? handleLayerColorChange : undefined}
+                      colorOverride={mode === 'realistic' && colorizeRealistic && customizedRealistic.has(idx) ? (layerColors[idx] || null) : null}
                       markerArmLength={scaledMarkerArmLength}
                       markerArmWidth={scaledMarkerArmWidth}
                       markerMargin={scaledMarkerMargin}
@@ -512,14 +675,20 @@ export default function StencilEditor() {
                     numLayers={numLayers}
                     onNumLayersChange={handleNumLayersChange}
                     detectedColors={detectedColors}
-                    whiteTolerance={whiteTolerance}
-                    onWhiteToleranceChange={setWhiteTolerance}
                     blurRadius={blurRadius}
                     onBlurRadiusChange={setBlurRadius}
                     cleanupSize={cleanupSize}
                     onCleanupSizeChange={setCleanupSize}
                     bleedRadius={bleedRadius}
                     onBleedRadiusChange={setBleedRadius}
+                    cartoonEdgeSmoothing={cartoonEdgeSmoothing}
+                    onCartoonEdgeSmoothingChange={setCartoonEdgeSmoothing}
+                    cartoonDetailRemoval={cartoonDetailRemoval}
+                    onCartoonDetailRemovalChange={setCartoonDetailRemoval}
+                    cartoonSimplification={cartoonSimplification}
+                    onCartoonSimplificationChange={setCartoonSimplification}
+                    devTools={DEV_TOOLS}
+                    onOpenCartoonDebug={() => setCartoonDebugOpen(true)}
                     removeBackground={removeBg}
                     onRemoveBackgroundChange={handleRemoveBgToggle}
                     removingBackground={removingBg}
@@ -554,6 +723,13 @@ export default function StencilEditor() {
           }
         </AnimatePresence>
       </main>
+
+      <CartoonDebugDialog
+        open={cartoonDebugOpen}
+        onOpenChange={setCartoonDebugOpen}
+        stages={v2Stages}
+        quality={v2Quality} />
+      
     </div>);
 
 }
