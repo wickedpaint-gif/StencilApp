@@ -1,5 +1,3 @@
-const db = globalThis.__B44_DB__ || { auth:{ isAuthenticated: async()=>false, me: async()=>null }, entities:new Proxy({}, { get:()=>({ filter:async()=>[], get:async()=>null, create:async()=>({}), update:async()=>({}), delete:async()=>({}) }) }), integrations:{ Core:{ UploadFile:async()=>({ file_url:'' }) } } };
-
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { removeBackground } from '@/services/backgroundRemoval';
 import { Link } from 'react-router-dom';
@@ -14,6 +12,7 @@ import ControlsPanel from '@/components/stencil/ControlsPanel';
 import CartoonDebugDialog from '@/components/stencil/CartoonDebugDialog';
 import { generateCartoonV2Layers } from '@/lib/cartoonV2';
 import { stageToDataUrl } from '@/lib/cartoonV2/debugStages';
+import Logo from "@/assets/Logo.png";
 
 // Development-only inspector (also enabled with ?dev=1). The engine switch is
 // always available in Cartoon mode; the stage inspector is not.
@@ -527,7 +526,7 @@ export default function StencilEditor() {
             </Button>
           </Link>
           <img
-            src="https://media.db.com/images/public/69ec063e95ff412fb6368fde/5ac03c47f_STENCILAPPLOGO.png"
+            src={Logo}
             alt="Stencil App"
             className="h-10 w-auto" />
           
